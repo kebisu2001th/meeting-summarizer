@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { Recording } from '../types/recording';
+import { Recording, Transcription } from '../types/recording';
 
 export interface TauriRecording {
   id: string;
@@ -80,6 +80,39 @@ export class TauriService {
       return await invoke<number>('get_recordings_count');
     } catch (error) {
       throw new Error(`Failed to get recordings count: ${error}`);
+    }
+  }
+
+  // Whisper 書き起こし関連メソッド
+
+  static async initializeWhisper(): Promise<void> {
+    try {
+      await invoke('initialize_whisper');
+    } catch (error) {
+      throw new Error(`Failed to initialize Whisper: ${error}`);
+    }
+  }
+
+  static async isWhisperInitialized(): Promise<boolean> {
+    try {
+      return await invoke<boolean>('is_whisper_initialized');
+    } catch (error) {
+      console.warn('Failed to check Whisper status:', error);
+      return false;
+    }
+  }
+
+  static async transcribeRecording(
+    recordingId: string, 
+    language?: string
+  ): Promise<Transcription> {
+    try {
+      return await invoke<Transcription>('transcribe_recording', {
+        recording_id: recordingId,
+        language: language || 'ja',
+      });
+    } catch (error) {
+      throw new Error(`Failed to transcribe recording: ${error}`);
     }
   }
 }

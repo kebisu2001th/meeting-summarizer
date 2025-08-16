@@ -63,3 +63,67 @@ impl RecordingSession {
         self
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Transcription {
+    pub id: String,
+    pub recording_id: String,
+    pub text: String,
+    pub language: String,
+    pub confidence: Option<f32>,
+    pub processing_time_ms: Option<u64>,
+    pub status: TranscriptionStatus,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TranscriptionStatus {
+    Pending,
+    Processing,
+    Completed,
+    Failed(String),
+}
+
+impl Transcription {
+    pub fn new(recording_id: String, language: String) -> Self {
+        let now = Utc::now();
+        Self {
+            id: Uuid::new_v4().to_string(),
+            recording_id,
+            text: String::new(),
+            language,
+            confidence: None,
+            processing_time_ms: None,
+            status: TranscriptionStatus::Pending,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    pub fn with_text(mut self, text: String, confidence: Option<f32>) -> Self {
+        self.text = text;
+        self.confidence = confidence;
+        self.status = TranscriptionStatus::Completed;
+        self.updated_at = Utc::now();
+        self
+    }
+
+    pub fn with_error(mut self, error: String) -> Self {
+        self.status = TranscriptionStatus::Failed(error);
+        self.updated_at = Utc::now();
+        self
+    }
+
+    pub fn set_processing(mut self) -> Self {
+        self.status = TranscriptionStatus::Processing;
+        self.updated_at = Utc::now();
+        self
+    }
+
+    pub fn set_processing_time(mut self, time_ms: u64) -> Self {
+        self.processing_time_ms = Some(time_ms);
+        self.updated_at = Utc::now();
+        self
+    }
+}

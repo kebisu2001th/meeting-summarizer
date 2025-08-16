@@ -6,7 +6,7 @@ mod services;
 
 use crate::commands::*;
 use crate::database::Database;
-use crate::services::RecordingService;
+use crate::services::{RecordingService, WhisperService};
 use std::sync::Arc;
 use tauri::Manager;
 
@@ -41,8 +41,15 @@ pub fn run() {
                     .expect("Failed to initialize recording service")
             );
 
+            // Whisperモデルパス（アプリケーションデータディレクトリ内）
+            let whisper_model_path = app_data_dir.join("models").join("ggml-base.bin");
+            
+            // Whisperサービスを初期化
+            let whisper_service = Arc::new(WhisperService::new(whisper_model_path));
+
             // サービスをアプリケーション状態に追加
             app.manage(recording_service);
+            app.manage(whisper_service);
 
             Ok(())
         })
@@ -53,7 +60,10 @@ pub fn run() {
             get_recording,
             delete_recording,
             is_recording,
-            get_recordings_count
+            get_recordings_count,
+            transcribe_recording,
+            initialize_whisper,
+            is_whisper_initialized
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -29,4 +29,7 @@ chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1.0"
 thiserror = "1.0"
 dirs = "5.0"
+# Whisper統合は一時的にコメントアウト（CMakeが必要）
+# whisper-rs = "0.14.4"
+hound = "3.5"  # WAV file reading/writing
 

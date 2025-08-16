@@ -1,6 +1,6 @@
 import { useAtom, useSetAtom } from 'jotai';
-import { useEffect } from 'react';
-import { Trash2, FileAudio } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Trash2, FileAudio, FileText, Loader2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card, CardContent } from '../ui/card';
 import { 
@@ -9,7 +9,8 @@ import {
   loadRecordingsAtom 
 } from '../../atoms/recording';
 import { formatDuration, formatDate, formatFileSize } from '../../lib/utils';
-import { Recording } from '../../types/recording';
+import { Recording, Transcription } from '../../types/recording';
+import { TauriService } from '../../services/tauri';
 
 interface RecordingItemProps {
   recording: Recording;
@@ -17,6 +18,10 @@ interface RecordingItemProps {
 }
 
 function RecordingItem({ recording, onDelete }: RecordingItemProps) {
+  const [transcription, setTranscription] = useState<Transcription | null>(null);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [showTranscription, setShowTranscription] = useState(false);
+
   const handleDelete = async () => {
     if (window.confirm(`Are you sure you want to delete "${recording.filename}"?`)) {
       try {
@@ -25,6 +30,22 @@ function RecordingItem({ recording, onDelete }: RecordingItemProps) {
         console.error('Failed to delete recording:', error);
         // TODO: Show user-friendly error message
       }
+    }
+  };
+
+  const handleTranscribe = async () => {
+    if (isTranscribing) return;
+
+    setIsTranscribing(true);
+    try {
+      const result = await TauriService.transcribeRecording(recording.id, 'ja');
+      setTranscription(result);
+      setShowTranscription(true);
+    } catch (error) {
+      console.error('Failed to transcribe recording:', error);
+      // TODO: Show user-friendly error message
+    } finally {
+      setIsTranscribing(false);
     }
   };
 
@@ -68,6 +89,20 @@ function RecordingItem({ recording, onDelete }: RecordingItemProps) {
             <Button
               variant="ghost"
               size="sm"
+              onClick={handleTranscribe}
+              disabled={isTranscribing}
+              className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+              title="Transcribe audio"
+            >
+              {isTranscribing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <FileText className="w-4 h-4" />
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={handleDelete}
               className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
               title="Delete recording"
@@ -76,6 +111,36 @@ function RecordingItem({ recording, onDelete }: RecordingItemProps) {
             </Button>
           </div>
         </div>
+
+        {/* 書き起こし結果表示 */}
+        {showTranscription && transcription && (
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-sm font-medium text-gray-900">書き起こし結果</h4>
+              <div className="flex items-center space-x-2 text-xs text-gray-500">
+                {transcription.confidence && (
+                  <span>信頼度: {Math.round(transcription.confidence * 100)}%</span>
+                )}
+                {transcription.processing_time_ms && (
+                  <span>処理時間: {transcription.processing_time_ms}ms</span>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowTranscription(false)}
+                  className="h-6 w-6 p-0 text-gray-400 hover:text-gray-600"
+                >
+                  ×
+                </Button>
+              </div>
+            </div>
+            <div className="bg-gray-50 rounded-md p-3">
+              <p className="text-sm text-gray-800 whitespace-pre-wrap">
+                {transcription.text || '書き起こし結果がありません'}
+              </p>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

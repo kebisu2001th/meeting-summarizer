@@ -1,7 +1,8 @@
-use crate::models::Recording;
-use crate::services::RecordingService;
+use crate::models::{Recording, Transcription};
+use crate::services::{RecordingService, WhisperService};
 use tauri::State;
 use std::sync::Arc;
+use std::path::PathBuf;
 
 #[tauri::command]
 pub async fn start_recording(
@@ -69,4 +70,50 @@ pub async fn get_recordings_count(
         .get_recordings_count()
         .await
         .map_err(|e| e.to_string())
+}
+
+// Whisper 書き起こし関連コマンド
+
+#[tauri::command]
+pub async fn transcribe_recording(
+    recording_service: State<'_, Arc<RecordingService>>,
+    whisper_service: State<'_, Arc<WhisperService>>,
+    recording_id: String,
+    language: Option<String>,
+) -> Result<Transcription, String> {
+    // 録音ファイルの取得
+    let recording = recording_service
+        .get_recording(&recording_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Recording not found".to_string())?;
+
+    // 音声ファイルが存在するかチェック
+    let audio_path = PathBuf::from(&recording.file_path);
+    if !audio_path.exists() {
+        return Err("Audio file not found".to_string());
+    }
+
+    // 書き起こし実行
+    whisper_service
+        .transcribe_audio_file(&audio_path, recording_id, language)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn initialize_whisper(
+    whisper_service: State<'_, Arc<WhisperService>>,
+) -> Result<(), String> {
+    whisper_service
+        .initialize()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn is_whisper_initialized(
+    whisper_service: State<'_, Arc<WhisperService>>,
+) -> Result<bool, String> {
+    Ok(whisper_service.is_initialized().await)
 }
