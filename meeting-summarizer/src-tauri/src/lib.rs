@@ -16,7 +16,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             // アプリケーションデータディレクトリを取得
-            let app_data_dir = app.path_resolver()
+            let app_data_dir = app.path()
                 .app_data_dir()
                 .expect("Failed to get app data directory");
 

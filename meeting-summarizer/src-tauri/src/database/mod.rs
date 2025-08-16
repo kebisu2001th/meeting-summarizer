@@ -137,11 +137,11 @@ impl Database {
         let updated_at_str: String = row.get("updated_at")?;
 
         let created_at = DateTime::parse_from_rfc3339(&created_at_str)
-            .map_err(|e| rusqlite::Error::InvalidColumnType(0, "created_at".to_string(), rusqlite::types::Type::Text))?
+            .map_err(|_e| rusqlite::Error::InvalidColumnType(0, "created_at".to_string(), rusqlite::types::Type::Text))?
             .with_timezone(&Utc);
 
         let updated_at = DateTime::parse_from_rfc3339(&updated_at_str)
-            .map_err(|e| rusqlite::Error::InvalidColumnType(0, "updated_at".to_string(), rusqlite::types::Type::Text))?
+            .map_err(|_e| rusqlite::Error::InvalidColumnType(0, "updated_at".to_string(), rusqlite::types::Type::Text))?
             .with_timezone(&Utc);
 
         Ok(Recording {
