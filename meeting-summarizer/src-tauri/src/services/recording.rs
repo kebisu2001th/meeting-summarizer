@@ -63,16 +63,18 @@ impl RecordingService {
         Ok(session_id)
     }
 
-    pub fn stop_recording(&self) -> AppResult<Recording> {
-        let mut current_session = self.current_session.lock()
-            .map_err(|_| AppError::InvalidOperation { 
-                message: "Failed to acquire session lock".to_string() 
-            })?;
+    pub async fn stop_recording(&self) -> AppResult<Recording> {
+        let session = {
+            let mut current_session = self.current_session.lock()
+                .map_err(|_| AppError::InvalidOperation { 
+                    message: "Failed to acquire session lock".to_string() 
+                })?;
 
-        let session = current_session.take()
-            .ok_or_else(|| AppError::Recording { 
-                message: "No active recording session".to_string() 
-            })?;
+            current_session.take()
+                .ok_or_else(|| AppError::Recording { 
+                    message: "No active recording session".to_string() 
+                })?
+        };
 
         // TODO: 実際の音声録音を停止
 
@@ -102,22 +104,22 @@ impl RecordingService {
         .with_file_size(file_size);
 
         // データベースに保存
-        self.db.create_recording(&recording)?;
+        self.db.create_recording(&recording).await?;
 
         Ok(recording)
     }
 
-    pub fn get_recordings(&self) -> AppResult<Vec<Recording>> {
-        self.db.get_all_recordings()
+    pub async fn get_recordings(&self) -> AppResult<Vec<Recording>> {
+        self.db.get_all_recordings().await
     }
 
-    pub fn get_recording(&self, id: &str) -> AppResult<Option<Recording>> {
-        self.db.get_recording(id)
+    pub async fn get_recording(&self, id: &str) -> AppResult<Option<Recording>> {
+        self.db.get_recording(id).await
     }
 
-    pub fn delete_recording(&self, id: &str) -> AppResult<bool> {
+    pub async fn delete_recording(&self, id: &str) -> AppResult<bool> {
         // データベースから録音情報を取得
-        if let Some(recording) = self.db.get_recording(id)? {
+        if let Some(recording) = self.db.get_recording(id).await? {
             // ファイルを削除
             let file_path = Path::new(&recording.file_path);
             if file_path.exists() {
@@ -125,7 +127,7 @@ impl RecordingService {
             }
             
             // データベースから削除
-            self.db.delete_recording(id)
+            self.db.delete_recording(id).await
         } else {
             Ok(false)
         }
@@ -137,12 +139,12 @@ impl RecordingService {
             .unwrap_or(false)
     }
 
-    pub fn get_recordings_count(&self) -> AppResult<i64> {
-        self.db.get_recordings_count()
+    pub async fn get_recordings_count(&self) -> AppResult<i64> {
+        self.db.get_recordings_count().await
     }
 
-    pub fn get_recording_file_path(&self, id: &str) -> AppResult<Option<PathBuf>> {
-        if let Some(recording) = self.db.get_recording(id)? {
+    pub async fn get_recording_file_path(&self, id: &str) -> AppResult<Option<PathBuf>> {
+        if let Some(recording) = self.db.get_recording(id).await? {
             let path = PathBuf::from(&recording.file_path);
             if path.exists() {
                 Ok(Some(path))

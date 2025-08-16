@@ -18,6 +18,7 @@ pub async fn stop_recording(
 ) -> Result<Recording, String> {
     recording_service
         .stop_recording()
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -27,6 +28,7 @@ pub async fn get_recordings(
 ) -> Result<Vec<Recording>, String> {
     recording_service
         .get_recordings()
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -37,6 +39,7 @@ pub async fn get_recording(
 ) -> Result<Option<Recording>, String> {
     recording_service
         .get_recording(&id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -47,6 +50,7 @@ pub async fn delete_recording(
 ) -> Result<bool, String> {
     recording_service
         .delete_recording(&id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -63,5 +67,6 @@ pub async fn get_recordings_count(
 ) -> Result<i64, String> {
     recording_service
         .get_recordings_count()
+        .await
         .map_err(|e| e.to_string())
 }

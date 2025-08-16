@@ -3,28 +3,19 @@ use crate::models::Recording;
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, Row};
 use std::path::Path;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 pub struct Database {
-    conn: Connection,
+    conn: Arc<Mutex<Connection>>,
 }
 
 impl Database {
     pub fn new<P: AsRef<Path>>(db_path: P) -> AppResult<Self> {
         let conn = Connection::open(db_path)?;
-        let db = Self { conn };
-        db.init_tables()?;
-        Ok(db)
-    }
-
-    pub fn in_memory() -> AppResult<Self> {
-        let conn = Connection::open_in_memory()?;
-        let db = Self { conn };
-        db.init_tables()?;
-        Ok(db)
-    }
-
-    fn init_tables(&self) -> AppResult<()> {
-        self.conn.execute(
+        
+        // 同期的にテーブル初期化
+        conn.execute(
             "CREATE TABLE IF NOT EXISTS recordings (
                 id TEXT PRIMARY KEY,
                 filename TEXT NOT NULL,
@@ -37,24 +28,65 @@ impl Database {
             [],
         )?;
 
-        // インデックス作成
-        self.conn.execute(
+        conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_recordings_created_at 
              ON recordings(created_at DESC)",
             [],
         )?;
 
-        self.conn.execute(
+        conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_recordings_filename 
              ON recordings(filename)",
             [],
         )?;
 
-        Ok(())
+        let db = Self { 
+            conn: Arc::new(Mutex::new(conn)) 
+        };
+        
+        Ok(db)
     }
 
-    pub fn create_recording(&self, recording: &Recording) -> AppResult<()> {
-        self.conn.execute(
+    pub fn in_memory() -> AppResult<Self> {
+        let conn = Connection::open_in_memory()?;
+        
+        // 同期的にテーブル初期化
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS recordings (
+                id TEXT PRIMARY KEY,
+                filename TEXT NOT NULL,
+                file_path TEXT NOT NULL UNIQUE,
+                duration INTEGER,
+                file_size INTEGER,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_recordings_created_at 
+             ON recordings(created_at DESC)",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_recordings_filename 
+             ON recordings(filename)",
+            [],
+        )?;
+
+        let db = Self { 
+            conn: Arc::new(Mutex::new(conn)) 
+        };
+        
+        Ok(db)
+    }
+
+
+    pub async fn create_recording(&self, recording: &Recording) -> AppResult<()> {
+        let conn = self.conn.lock().await;
+        conn.execute(
             "INSERT INTO recordings (id, filename, file_path, duration, file_size, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
@@ -70,8 +102,9 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_recording(&self, id: &str) -> AppResult<Option<Recording>> {
-        let mut stmt = self.conn.prepare(
+    pub async fn get_recording(&self, id: &str) -> AppResult<Option<Recording>> {
+        let conn = self.conn.lock().await;
+        let mut stmt = conn.prepare(
             "SELECT id, filename, file_path, duration, file_size, created_at, updated_at 
              FROM recordings WHERE id = ?1"
         )?;
@@ -84,8 +117,9 @@ impl Database {
         }
     }
 
-    pub fn get_all_recordings(&self) -> AppResult<Vec<Recording>> {
-        let mut stmt = self.conn.prepare(
+    pub async fn get_all_recordings(&self) -> AppResult<Vec<Recording>> {
+        let conn = self.conn.lock().await;
+        let mut stmt = conn.prepare(
             "SELECT id, filename, file_path, duration, file_size, created_at, updated_at 
              FROM recordings ORDER BY created_at DESC"
         )?;
@@ -96,10 +130,11 @@ impl Database {
         Ok(recordings)
     }
 
-    pub fn update_recording(&self, recording: &Recording) -> AppResult<()> {
+    pub async fn update_recording(&self, recording: &Recording) -> AppResult<()> {
         let updated_at = Utc::now().to_rfc3339();
+        let conn = self.conn.lock().await;
         
-        self.conn.execute(
+        conn.execute(
             "UPDATE recordings 
              SET filename = ?2, file_path = ?3, duration = ?4, file_size = ?5, updated_at = ?6
              WHERE id = ?1",
@@ -115,16 +150,18 @@ impl Database {
         Ok(())
     }
 
-    pub fn delete_recording(&self, id: &str) -> AppResult<bool> {
-        let rows_affected = self.conn.execute(
+    pub async fn delete_recording(&self, id: &str) -> AppResult<bool> {
+        let conn = self.conn.lock().await;
+        let rows_affected = conn.execute(
             "DELETE FROM recordings WHERE id = ?1",
             params![id],
         )?;
         Ok(rows_affected > 0)
     }
 
-    pub fn get_recordings_count(&self) -> AppResult<i64> {
-        let count: i64 = self.conn.query_row(
+    pub async fn get_recordings_count(&self) -> AppResult<i64> {
+        let conn = self.conn.lock().await;
+        let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM recordings",
             [],
             |row| row.get(0)
