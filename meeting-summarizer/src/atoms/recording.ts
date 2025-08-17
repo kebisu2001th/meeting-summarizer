@@ -1,5 +1,5 @@
 import { atom } from 'jotai';
-import { Recording, RecordingState } from '../types/recording';
+import type { Recording, RecordingState } from '../types/recording';
 import { TauriService } from '../services/tauri';
 
 // 録音状態の管理
@@ -47,8 +47,12 @@ export const startRecordingAtom = atom(
       throw new Error('Recording is already in progress');
     }
 
+    console.log('startRecordingAtom');
+
     try {
       const sessionId = await TauriService.startRecording();
+
+      console.log('sessionId', sessionId);
       
       set(recordingStateAtom, {
         isRecording: true,
@@ -56,12 +60,15 @@ export const startRecordingAtom = atom(
         isPaused: false,
       });
 
-      // 現在の録音セッション情報を設定
+      // 現在の録音セッション情報を設定（一時的な値）
       set(currentRecordingAtom, {
         id: sessionId,
         filename: 'Recording...',
+        file_path: '',
         duration: 0,
-        createdAt: new Date(),
+        file_size: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       });
     } catch (error) {
       console.error('Failed to start recording:', error);

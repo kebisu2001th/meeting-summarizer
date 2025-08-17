@@ -1,4 +1,4 @@
-use crate::errors::{AppError, AppResult};
+use crate::errors::AppResult;
 use crate::models::Recording;
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, Row};

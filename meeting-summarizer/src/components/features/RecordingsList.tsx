@@ -68,16 +68,16 @@ function RecordingItem({ recording, onDelete }: RecordingItemProps) {
                   {recording.filename}
                 </h3>
                 <span className="text-xs text-gray-500 font-mono">
-                  {formatDuration(recording.duration)}
+                  {formatDuration(recording.duration || 0)}
                 </span>
               </div>
               <div className="flex items-center space-x-4 mt-1">
                 <span className="text-xs text-gray-500">
-                  {formatDate(recording.createdAt)}
+                  {formatDate(new Date(recording.created_at))}
                 </span>
-                {recording.size && (
+                {recording.file_size && (
                   <span className="text-xs text-gray-500">
-                    {formatFileSize(recording.size)}
+                    {formatFileSize(recording.file_size)}
                   </span>
                 )}
               </div>
@@ -119,7 +119,7 @@ function RecordingItem({ recording, onDelete }: RecordingItemProps) {
               <h4 className="text-sm font-medium text-gray-900">書き起こし結果</h4>
               <div className="flex items-center space-x-2 text-xs text-gray-500">
                 {transcription.confidence && (
-                  <span>信頼度: {Math.round(transcription.confidence * 100)}%</span>
+                  <span>信頼度: {transcription.confidence ? Math.round(transcription.confidence * 100) : 0}%</span>
                 )}
                 {transcription.processing_time_ms && (
                   <span>処理時間: {transcription.processing_time_ms}ms</span>

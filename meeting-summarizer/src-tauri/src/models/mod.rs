@@ -86,7 +86,22 @@ pub enum TranscriptionStatus {
 }
 
 impl Transcription {
-    pub fn new(recording_id: String, language: String) -> Self {
+    pub fn new(recording_id: String, text: String, language: String) -> Self {
+        let now = Utc::now();
+        Self {
+            id: Uuid::new_v4().to_string(),
+            recording_id,
+            text,
+            language,
+            confidence: None,
+            processing_time_ms: None,
+            status: TranscriptionStatus::Pending,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+    
+    pub fn new_empty(recording_id: String, language: String) -> Self {
         let now = Utc::now();
         Self {
             id: Uuid::new_v4().to_string(),
@@ -123,6 +138,24 @@ impl Transcription {
 
     pub fn set_processing_time(mut self, time_ms: u64) -> Self {
         self.processing_time_ms = Some(time_ms);
+        self.updated_at = Utc::now();
+        self
+    }
+    
+    pub fn with_confidence(mut self, confidence: Option<f32>) -> Self {
+        self.confidence = confidence;
+        self.updated_at = Utc::now();
+        self
+    }
+    
+    pub fn with_processing_time(mut self, time_ms: Option<u64>) -> Self {
+        self.processing_time_ms = time_ms;
+        self.updated_at = Utc::now();
+        self
+    }
+    
+    pub fn with_status(mut self, status: TranscriptionStatus) -> Self {
+        self.status = status;
         self.updated_at = Utc::now();
         self
     }

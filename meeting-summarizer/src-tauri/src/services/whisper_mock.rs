@@ -1,5 +1,5 @@
-use crate::errors::{AppError, AppResult};
-use crate::models::{Transcription, TranscriptionStatus};
+use crate::errors::{AppError, AppResult, validate_file_path, validate_audio_format, validate_file_size};
+use crate::models::Transcription;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -9,13 +9,15 @@ use tokio::time::{sleep, Duration};
 
 pub struct WhisperService {
     model_path: PathBuf,
+    allowed_recordings_dir: PathBuf,
     is_initialized: Arc<Mutex<bool>>,
 }
 
 impl WhisperService {
-    pub fn new(model_path: PathBuf) -> Self {
+    pub fn new(model_path: PathBuf, allowed_recordings_dir: PathBuf) -> Self {
         Self {
             model_path,
+            allowed_recordings_dir,
             is_initialized: Arc::new(Mutex::new(false)),
         }
     }
@@ -50,26 +52,38 @@ impl WhisperService {
         // 初期化確認
         self.initialize().await?;
 
-        let mut transcription = Transcription::new(
+        // セキュリティ検証：ファイルパスの検証
+        let audio_file_str = audio_file_path.to_string_lossy().to_string();
+        let allowed_dir_str = self.allowed_recordings_dir.to_string_lossy().to_string();
+        let validated_path = validate_file_path(&audio_file_str, &allowed_dir_str)?;
+
+        // ファイル存在確認
+        if !validated_path.exists() {
+            return Err(AppError::FileNotFound {
+                path: validated_path.to_string_lossy().to_string(),
+            });
+        }
+
+        // 音声ファイル形式の検証
+        validate_audio_format(&validated_path)?;
+
+        // ファイルサイズ制限（100MB）
+        validate_file_size(&validated_path, 100)?;
+
+        let language = language.unwrap_or_else(|| "ja".to_string());
+        let mut transcription = Transcription::new_empty(
             recording_id,
-            language.unwrap_or_else(|| "ja".to_string()),
+            language.clone(),
         );
         transcription = transcription.set_processing();
 
-        println!("🎤 音声書き起こし開始: {:?}", audio_file_path);
-
-        // 音声ファイルの存在確認
-        if !audio_file_path.exists() {
-            return Err(AppError::FileNotFound {
-                path: audio_file_path.to_string_lossy().to_string(),
-            });
-        }
+        println!("🎤 音声書き起こし開始: {:?}", validated_path);
 
         // 書き起こし処理をシミュレート
         sleep(Duration::from_millis(2000)).await;
 
         // モック書き起こし結果
-        let mock_text = self.generate_mock_transcription(&audio_file_path).await?;
+        let mock_text = self.generate_mock_transcription(&validated_path).await?;
         
         let processing_time = start_time.elapsed().as_millis() as u64;
 

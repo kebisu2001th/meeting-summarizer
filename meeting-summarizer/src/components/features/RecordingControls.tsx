@@ -17,10 +17,14 @@ export function RecordingControls() {
   const duration = useRecordingTimer();
 
   const handleRecordingToggle = async () => {
+
+    console.log('handleRecordingToggle');
     try {
       if (recordingState.isRecording) {
+        console.log('stopRecording');
         await stopRecording();
       } else {
+        console.log('startRecording');
         await startRecording();
       }
     } catch (error) {
@@ -53,7 +57,7 @@ export function RecordingControls() {
               onClick={handleRecordingToggle}
               size="lg"
               className={cn(
-                "w-24 h-24 rounded-full transition-all duration-200 ease-in-out",
+                "relative z-10 w-24 h-24 rounded-full transition-all duration-200 ease-in-out cursor-pointer",
                 "hover:scale-105 active:scale-95",
                 recordingState.isRecording
                   ? "bg-red-500 hover:bg-red-600 text-white shadow-red-200 shadow-lg"
@@ -61,7 +65,7 @@ export function RecordingControls() {
               )}
             >
               {recordingState.isRecording ? (
-                <Square className="w-8 h-8" fill="currentColor" />
+                <Square className="w-8 h-8" fill="currentColor" /> 
               ) : (
                 <Mic className="w-8 h-8" />
               )}
@@ -69,7 +73,7 @@ export function RecordingControls() {
             
             {/* 録音中のパルスエフェクト */}
             {recordingState.isRecording && !recordingState.isPaused && (
-              <div className="absolute inset-0 rounded-full bg-red-400 animate-ping opacity-25" />
+              <div className="pointer-events-none absolute inset-0 z-0 rounded-full bg-red-400 animate-ping opacity-25" />
             )}
           </div>
 

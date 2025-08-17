@@ -29,7 +29,15 @@ chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1.0"
 thiserror = "1.0"
 dirs = "5.0"
-# Whisper統合は一時的にコメントアウト（CMakeが必要）
-# whisper-rs = "0.14.4"
+log = "0.4"
+env_logger = "0.11"
+# Whisper統合 - ローカル実行（Python whisperライブラリ使用）
+reqwest = { version = "0.12", features = ["json", "multipart"] }
 hound = "3.5"  # WAV file reading/writing
+# Audio recording functionality - keeping it simple for now
+# cpal = "0.15"  # Cross-platform audio I/O  
+# ringbuf = "0.3"  # Ring buffer for audio streaming
+
+[dev-dependencies]
+tempfile = "3.10"  # Temporary files for testing
 

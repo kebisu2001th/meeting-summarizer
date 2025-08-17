@@ -1,8 +1,8 @@
 mod commands;
-mod database;
-mod errors;
-mod models;
-mod services;
+pub mod database;
+pub mod errors;
+pub mod models;
+pub mod services;
 
 use crate::commands::*;
 use crate::database::Database;
@@ -37,15 +37,15 @@ pub fn run() {
 
             // 録音サービスを初期化
             let recording_service = Arc::new(
-                RecordingService::new(database, recordings_dir)
+                RecordingService::new(database, recordings_dir.clone())
                     .expect("Failed to initialize recording service")
             );
 
             // Whisperモデルパス（アプリケーションデータディレクトリ内）
             let whisper_model_path = app_data_dir.join("models").join("ggml-base.bin");
             
-            // Whisperサービスを初期化
-            let whisper_service = Arc::new(WhisperService::new(whisper_model_path));
+            // Whisperサービスを初期化（セキュリティ強化：許可されたディレクトリを指定）
+            let whisper_service = Arc::new(WhisperService::new(whisper_model_path, recordings_dir));
 
             // サービスをアプリケーション状態に追加
             app.manage(recording_service);
@@ -61,6 +61,7 @@ pub fn run() {
             delete_recording,
             is_recording,
             get_recordings_count,
+            get_audio_devices,
             transcribe_recording,
             initialize_whisper,
             is_whisper_initialized
