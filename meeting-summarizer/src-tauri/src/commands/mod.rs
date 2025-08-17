@@ -86,6 +86,8 @@ pub async fn delete_recording(
     recording_service: State<'_, Arc<RecordingService>>,
     id: String,
 ) -> Result<bool, String> {
+    log::info!("🗑️  delete_recording command called with id: {}", id);
+    
     // 認証チェック
     validate_request(&app_handle)
         .await
@@ -95,10 +97,23 @@ pub async fn delete_recording(
     let sanitized_id = sanitize_string_input(&id, 50)
         .map_err(|e| e.to_string())?;
     
-    recording_service
+    log::info!("🔍 Attempting to delete recording with sanitized id: {}", sanitized_id);
+    
+    let result = recording_service
         .delete_recording(&sanitized_id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| {
+            log::error!("❌ Failed to delete recording {}: {}", sanitized_id, e);
+            e.to_string()
+        })?;
+    
+    if result {
+        log::info!("✅ Successfully deleted recording: {}", sanitized_id);
+    } else {
+        log::warn!("⚠️  Recording not found or couldn't be deleted: {}", sanitized_id);
+    }
+    
+    Ok(result)
 }
 
 #[tauri::command]
@@ -137,6 +152,8 @@ pub async fn transcribe_recording(
     recording_id: String,
     language: Option<String>,
 ) -> Result<Transcription, String> {
+    log::info!("🎤 transcribe_recording command called for id: {} with language: {:?}", recording_id, language);
+    
     // 認証チェック
     validate_request(&app_handle)
         .await
@@ -153,27 +170,52 @@ pub async fn transcribe_recording(
         None
     };
     
+    log::info!("🔍 Looking for recording: {}", sanitized_recording_id);
+    
     // 録音ファイルの取得
     let recording = recording_service
         .get_recording(&sanitized_recording_id)
         .await
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| "Recording not found".to_string())?;
+        .ok_or_else(|| {
+            log::error!("❌ Recording not found: {}", sanitized_recording_id);
+            "Recording not found".to_string()
+        })?;
 
     // 音声ファイルが存在するかチェック
     let audio_path = PathBuf::from(&recording.file_path);
     if !audio_path.exists() {
+        log::error!("❌ Audio file not found: {:?}", audio_path);
         return Err("Audio file not found".to_string());
+    }
+    
+    log::info!("📁 Audio file found: {:?}", audio_path);
+
+    // Whisper初期化状態確認
+    let is_initialized = whisper_service.is_initialized().await;
+    log::info!("🧠 Whisper initialized: {}", is_initialized);
+    
+    if !is_initialized {
+        log::info!("🔄 Initializing Whisper service...");
+        whisper_service.initialize().await.map_err(|e| {
+            log::error!("❌ Failed to initialize Whisper: {}", e);
+            format!("Failed to initialize Whisper: {}", e)
+        })?;
     }
 
     // 書き起こし実行（セキュリティ検証は WhisperService 内で実行）
+    log::info!("🎵 Starting transcription...");
     whisper_service
         .transcribe_audio_file(&audio_path, sanitized_recording_id, sanitized_language)
         .await
         .map_err(|e| {
             // エラーログを記録（本番環境では詳細なエラー情報を隠蔽）
-            log::error!("Transcription failed for recording {}: {}", recording_id, e);
-            "Transcription failed".to_string()
+            log::error!("❌ Transcription failed for recording {}: {}", recording_id, e);
+            format!("Transcription failed: {}", e)
+        })
+        .map(|result| {
+            log::info!("✅ Transcription completed for recording: {}", recording_id);
+            result
         })
 }
 

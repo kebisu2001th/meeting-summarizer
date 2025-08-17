@@ -25,10 +25,12 @@ function RecordingItem({ recording, onDelete }: RecordingItemProps) {
   const handleDelete = async () => {
     if (window.confirm(`Are you sure you want to delete "${recording.filename}"?`)) {
       try {
+        console.log('Attempting to delete recording:', recording.id);
         await onDelete(recording.id);
+        console.log('Successfully deleted recording:', recording.id);
       } catch (error) {
         console.error('Failed to delete recording:', error);
-        // TODO: Show user-friendly error message
+        alert(`削除に失敗しました: ${error}`);
       }
     }
   };
@@ -38,12 +40,22 @@ function RecordingItem({ recording, onDelete }: RecordingItemProps) {
 
     setIsTranscribing(true);
     try {
+      console.log('Starting transcription for recording:', recording.id);
+      
+      // Whisperサービスの初期化確認
+      const isInitialized = await TauriService.isWhisperInitialized();
+      if (!isInitialized) {
+        console.log('Initializing Whisper service...');
+        await TauriService.initializeWhisper();
+      }
+      
       const result = await TauriService.transcribeRecording(recording.id, 'ja');
+      console.log('Transcription completed:', result);
       setTranscription(result);
       setShowTranscription(true);
     } catch (error) {
       console.error('Failed to transcribe recording:', error);
-      // TODO: Show user-friendly error message
+      alert(`書き起こしに失敗しました: ${error}`);
     } finally {
       setIsTranscribing(false);
     }
@@ -157,7 +169,20 @@ export function RecordingsList() {
   }, [loadRecordings]);
 
   const handleDelete = async (id: string) => {
-    await deleteRecording(id);
+    try {
+      console.log('RecordingsList: handleDelete called with id:', id);
+      const success = await deleteRecording(id);
+      console.log('RecordingsList: deleteRecording result:', success);
+      
+      if (success) {
+        // 削除成功後、リストを再読み込み
+        await loadRecordings();
+        console.log('RecordingsList: refreshed recordings list');
+      }
+    } catch (error) {
+      console.error('RecordingsList: handleDelete error:', error);
+      alert(`削除に失敗しました: ${error}`);
+    }
   };
 
   if (recordings.length === 0) {
