@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.kenshiroebisu.meeting-summarizer",
   "build": {
-    "beforeDevCommand": "pnpm dev --port 1421",
+    "beforeDevCommand": "npm run dev -- --port 1421",
     "devUrl": "http://localhost:1421",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"

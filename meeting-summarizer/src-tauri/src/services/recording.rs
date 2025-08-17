@@ -1,7 +1,7 @@
 use crate::database::Database;
 use crate::errors::{AppError, AppResult};
 use crate::models::{Recording, RecordingSession};
-use crate::services::audio_capture_mock::AudioCapture;
+use crate::services::audio_capture_cpal::AudioCapture;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -63,7 +63,7 @@ impl RecordingService {
 
         // 実際の音声録音を開始
         {
-            let audio_capture = self.audio_capture.lock().await;
+            let mut audio_capture = self.audio_capture.lock().await;
             audio_capture.start_recording(&temp_file_path).await?;
         } // Mutexガードがここでdropされる
 
@@ -87,7 +87,7 @@ impl RecordingService {
 
         // 実際の音声録音を停止
         {
-            let audio_capture = self.audio_capture.lock().await;
+            let mut audio_capture = self.audio_capture.lock().await;
             audio_capture.stop_recording().await?;
         } // Mutexガードがここでdropされる
 

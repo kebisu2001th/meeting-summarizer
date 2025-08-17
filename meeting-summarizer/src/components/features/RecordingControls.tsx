@@ -1,5 +1,5 @@
 import { useAtom, useSetAtom } from 'jotai';
-import { Mic, Square } from 'lucide-react';
+import { Mic, Square, Volume2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card, CardContent } from '../ui/card';
 import { 
@@ -9,12 +9,14 @@ import {
 } from '../../atoms/recording';
 import { useRecordingTimer } from '../../hooks/useRecordingTimer';
 import { formatDuration, cn } from '../../lib/utils';
+import { useState, useEffect } from 'react';
 
 export function RecordingControls() {
   const [recordingState] = useAtom(recordingStateAtom);
   const startRecording = useSetAtom(startRecordingAtom);
   const stopRecording = useSetAtom(stopRecordingAtom);
   const duration = useRecordingTimer();
+  const [audioLevel, setAudioLevel] = useState(0);
 
   const handleRecordingToggle = async () => {
 
@@ -32,6 +34,21 @@ export function RecordingControls() {
       // TODO: Show user-friendly error message
     }
   };
+
+  // シミュレートされた音声レベル（実際の実装では音声入力レベルを取得）
+  useEffect(() => {
+    if (recordingState.isRecording) {
+      const interval = setInterval(() => {
+        // ランダムな音声レベルをシミュレート（実際の実装では実際の音声レベルを取得）
+        const level = Math.random() * 100;
+        setAudioLevel(level);
+      }, 100);
+      
+      return () => clearInterval(interval);
+    } else {
+      setAudioLevel(0);
+    }
+  }, [recordingState.isRecording]);
 
   const getRecordingStatus = () => {
     if (recordingState.isRecording) {
@@ -87,6 +104,26 @@ export function RecordingControls() {
             <div className="text-3xl font-mono font-bold text-gray-900">
               {formatDuration(duration)}
             </div>
+
+            {/* 音声レベル表示 */}
+            {recordingState.isRecording && (
+              <div className="w-full max-w-xs">
+                <div className="flex items-center space-x-2 mb-1">
+                  <Volume2 className="w-4 h-4 text-gray-500" />
+                  <span className="text-xs text-gray-500">音声レベル</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div 
+                    className="bg-green-500 h-2 rounded-full transition-all duration-100"
+                    style={{ width: `${Math.min(audioLevel, 100)}%` }}
+                  />
+                </div>
+                <div className="flex justify-between text-xs text-gray-400 mt-1">
+                  <span>無音</span>
+                  <span>最大</span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 録音の説明 */}
