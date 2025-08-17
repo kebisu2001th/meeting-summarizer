@@ -131,20 +131,41 @@ impl AudioCapture {
         let mut sample_count = 0u64;
         let samples_per_update = SAMPLE_RATE / 10; // 0.1秒分のサンプル
 
-        // モック録音ループ
+        // モック録音ループ - 日本語音声パターンを生成
         while is_recording.lock().map(|g| *g).unwrap_or(false) {
-            // サイレント音声データを生成（わずかなノイズを追加して現実的に）
-            for _ in 0..samples_per_update {
-                // 基本的にはサイレント、時々わずかなノイズ
-                let sample = if sample_count % (SAMPLE_RATE as u64 * 5) == 0 {
-                    // 5秒に一度、わずかなノイズ
-                    (rand::random::<f32>() - 0.5) * 0.01 * i16::MAX as f32
-                } else {
-                    // 基本はサイレント
-                    0.0
-                };
+            // 日本語話者の音声特性に似たパターンを生成
+            for i in 0..samples_per_update {
+                let time = (sample_count + i as u64) as f32 / SAMPLE_RATE as f32;
                 
-                let i16_sample = sample as i16;
+                // 日本語の音韻特性を模擬した周波数パターン
+                // 日本語の平均基本周波数: 男性 ~120Hz, 女性 ~220Hz
+                let base_freq = 180.0 + 40.0 * (time * 0.8).sin(); // 基本周波数（日本語話者の中間）
+                
+                // 日本語の子音・母音パターンを模擬
+                let vowel_pattern = 400.0 + 200.0 * (time * 3.0).cos(); // 母音フォルマント
+                let consonant_pattern = 800.0 + 400.0 * (time * 7.0).sin(); // 子音成分
+                
+                // 日本語特有のピッチ変動パターン
+                let pitch_variation = 1.0 + 0.3 * (time * 1.5).sin() + 0.2 * (time * 4.0).cos();
+                
+                // 音韻の強弱変化（日本語の拍リズム）
+                let mora_rhythm = 0.8 + 0.4 * (time * 6.0).sin().abs();
+                
+                // 全体の振幅（声の大きさ）
+                let amplitude = 0.25 * mora_rhythm * pitch_variation;
+                
+                // 複数の音声成分を合成
+                let fundamental = amplitude * (2.0 * std::f32::consts::PI * base_freq * time).sin();
+                let vowel_component = amplitude * 0.6 * (2.0 * std::f32::consts::PI * vowel_pattern * time).sin();
+                let consonant_component = amplitude * 0.3 * (2.0 * std::f32::consts::PI * consonant_pattern * time).sin();
+                
+                // 呼吸音・摩擦音のノイズ成分
+                let breath_noise = amplitude * 0.1 * (rand::random::<f32>() - 0.5);
+                
+                // 最終的な音声信号
+                let combined_sample = fundamental + vowel_component + consonant_component + breath_noise;
+                let i16_sample = (combined_sample * i16::MAX as f32).clamp(-32767.0, 32767.0) as i16;
+                
                 writer.write_sample(i16_sample)
                     .map_err(|e| AppError::Recording {
                         message: format!("Failed to write audio sample: {}", e),
