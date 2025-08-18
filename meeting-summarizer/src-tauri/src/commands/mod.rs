@@ -235,3 +235,7 @@ pub async fn is_whisper_initialized(
 ) -> Result<bool, String> {
     Ok(whisper_service.is_initialized().await)
 }
+
+// LLM commands module
+pub mod llm;
+pub mod streaming;

@@ -47,6 +47,18 @@ pub enum AppError {
     
     #[error("HTTP request error: {0}")]
     Reqwest(#[from] reqwest::Error),
+    
+    #[error("LLM error: {message}")]
+    LLMError { message: String },
+    
+    #[error("LLM connection error: {message}")]
+    LLMConnectionError { message: String },
+    
+    #[error("LLM timeout: {message}")]
+    LLMTimeout { message: String },
+    
+    #[error("LLM configuration error: {message}")]
+    LLMConfigError { message: String },
 }
 
 impl From<AppError> for String {

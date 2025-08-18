@@ -4,11 +4,12 @@ pub mod errors;
 pub mod models;
 pub mod services;
 
-use crate::commands::*;
+use crate::commands::{*, llm, streaming};
 use crate::database::Database;
 use crate::services::{RecordingService, WhisperService};
 use std::sync::Arc;
 use tauri::Manager;
+use tokio::sync::Mutex;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -35,12 +36,15 @@ pub fn run() {
             // 録音ファイル保存ディレクトリ
             let recordings_dir = app_data_dir.join("recordings");
 
-            // データベースを初期化
-            let database = Arc::new(Database::new(db_path).expect("Failed to initialize database"));
+            // データベースを初期化（LLM用のMutex包装版）
+            let database = Arc::new(Mutex::new(Database::new(&db_path).expect("Failed to initialize database")));
 
+            // 録音サービス用のデータベース（独立インスタンス）
+            let recording_db = Arc::new(Database::new(&db_path).expect("Failed to initialize recording database"));
+            
             // 録音サービスを初期化
             let recording_service = Arc::new(
-                RecordingService::new(database, recordings_dir.clone())
+                RecordingService::new(recording_db, recordings_dir.clone())
                     .expect("Failed to initialize recording service")
             );
 
@@ -51,6 +55,7 @@ pub fn run() {
             let whisper_service = Arc::new(WhisperService::new(whisper_model_path, recordings_dir));
 
             // サービスをアプリケーション状態に追加
+            app.manage(database);
             app.manage(recording_service);
             app.manage(whisper_service);
 
@@ -67,7 +72,23 @@ pub fn run() {
             get_audio_devices,
             transcribe_recording,
             initialize_whisper,
-            is_whisper_initialized
+            is_whisper_initialized,
+            // LLM commands
+            llm::generate_summary,
+            llm::get_summary_by_id,
+            llm::get_summaries_for_transcription,
+            llm::update_summary,
+            llm::delete_summary,
+            llm::check_llm_connection,
+            llm::get_default_llm_config,
+            llm::validate_llm_config,
+            llm::get_available_llm_providers,
+            llm::get_provider_default_config,
+            llm::test_summarization,
+            // Streaming commands
+            streaming::generate_summary_with_progress,
+            streaming::cancel_summarization,
+            streaming::get_summarization_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
