@@ -4,7 +4,7 @@ pub mod errors;
 pub mod models;
 pub mod services;
 
-use crate::commands::{*, llm, streaming};
+use crate::commands::{*, file_management, llm, streaming};
 use crate::database::Database;
 use crate::services::{RecordingService, WhisperService};
 use std::sync::Arc;
@@ -73,7 +73,21 @@ pub fn run() {
             transcribe_recording,
             initialize_whisper,
             is_whisper_initialized,
-            // LLM commands
+            // File management commands (Phase 2)
+            file_management::get_all_recordings_fm,
+            file_management::get_recording_by_id,
+            file_management::search_recordings,
+            file_management::update_recording_metadata,
+            file_management::delete_recording_fm,
+            file_management::get_recording_stats,
+            file_management::get_all_categories,
+            file_management::get_all_tags,
+            file_management::get_transcriptions_by_recording,
+            file_management::get_transcription_by_id,
+            file_management::export_recording_data,
+            file_management::get_recordings_count_fm,
+            file_management::cleanup_orphaned_files,
+            // LLM commands (Phase 3)
             llm::generate_summary,
             llm::get_summary_by_id,
             llm::get_summaries_for_transcription,
@@ -85,7 +99,7 @@ pub fn run() {
             llm::get_available_llm_providers,
             llm::get_provider_default_config,
             llm::test_summarization,
-            // Streaming commands
+            // Streaming commands (Phase 3)
             streaming::generate_summary_with_progress,
             streaming::cancel_summarization,
             streaming::get_summarization_status
