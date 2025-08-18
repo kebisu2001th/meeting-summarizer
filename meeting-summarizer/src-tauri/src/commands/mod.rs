@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::path::PathBuf;
 
 pub mod file_management;
-
 // セキュリティ：基本的な認証チェック（実装は簡易版）
 async fn validate_request(_app_handle: &AppHandle) -> Result<(), AppError> {
     // TODO: 実際の認証システムでは、セッショントークンやJWTの検証を行う
@@ -237,3 +236,7 @@ pub async fn is_whisper_initialized(
 ) -> Result<bool, String> {
     Ok(whisper_service.is_initialized().await)
 }
+
+// LLM commands module
+pub mod llm;
+pub mod streaming;

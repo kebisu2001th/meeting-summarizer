@@ -275,3 +275,102 @@ impl Transcription {
         self
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Summary {
+    pub id: String,
+    pub transcription_id: String,
+    pub summary_text: String,
+    pub key_points: Vec<String>,
+    pub action_items: Vec<String>,
+    pub model_used: String,
+    pub processing_time_ms: Option<u64>,
+    pub status: SummaryStatus,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SummaryStatus {
+    Pending,
+    Processing,
+    Completed,
+    Failed(String),
+}
+
+impl Summary {
+    pub fn new(transcription_id: String, model_used: String) -> Self {
+        let now = Utc::now();
+        Self {
+            id: Uuid::new_v4().to_string(),
+            transcription_id,
+            summary_text: String::new(),
+            key_points: Vec::new(),
+            action_items: Vec::new(),
+            model_used,
+            processing_time_ms: None,
+            status: SummaryStatus::Pending,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    pub fn with_content(mut self, summary_text: String, key_points: Vec<String>, action_items: Vec<String>) -> Self {
+        self.summary_text = summary_text;
+        self.key_points = key_points;
+        self.action_items = action_items;
+        self.status = SummaryStatus::Completed;
+        self.updated_at = Utc::now();
+        self
+    }
+
+    pub fn with_error(mut self, error: String) -> Self {
+        self.status = SummaryStatus::Failed(error);
+        self.updated_at = Utc::now();
+        self
+    }
+
+    pub fn set_processing(mut self) -> Self {
+        self.status = SummaryStatus::Processing;
+        self.updated_at = Utc::now();
+        self
+    }
+
+    pub fn with_processing_time(mut self, time_ms: u64) -> Self {
+        self.processing_time_ms = Some(time_ms);
+        self.updated_at = Utc::now();
+        self
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LLMConfig {
+    pub provider: LLMProvider,
+    pub base_url: String,
+    pub model_name: String,
+    pub temperature: f32,
+    pub max_tokens: u32,
+    pub timeout_seconds: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum LLMProvider {
+    Ollama,
+    OpenAI,
+    GPT4All,
+    LMStudio,
+    Custom,
+}
+
+impl Default for LLMConfig {
+    fn default() -> Self {
+        Self {
+            provider: LLMProvider::Ollama,
+            base_url: "http://localhost:11434".to_string(),
+            model_name: "llama3.2:3b".to_string(),
+            temperature: 0.7,
+            max_tokens: 2048,
+            timeout_seconds: 120,
+        }
+    }
+}

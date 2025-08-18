@@ -8,6 +8,10 @@ pub mod whisper;
 pub mod whisper_local;
 pub mod whisper_mock;
 
+// LLM統合サービス
+pub mod llm;
+
 pub use audio_capture_cpal::AudioCapture;
 pub use recording::RecordingService;
 pub use whisper_local::WhisperService;
+pub use llm::LLMService;
