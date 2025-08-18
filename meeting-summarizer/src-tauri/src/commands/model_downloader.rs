@@ -179,8 +179,8 @@ pub async fn validate_model_download_requirements(
 pub async fn get_recommended_models_for_system() -> Result<Vec<String>, String> {
     log::info!("🎯 Getting recommended models for current system");
     
-    // システム仕様に基づく推奨（簡易実装）
-    let available_memory = 16384u64; // 実際の実装ではシステム情報取得
+    // システムメモリ情報を取得
+    let available_memory = get_system_memory_mb();
     
     let recommendations = if available_memory >= 32768 {
         // 32GB以上 - 高性能モデル推奨
@@ -269,4 +269,47 @@ pub async fn get_model_tags() -> Result<Vec<String>, String> {
     
     log::info!("🏷️ Retrieved {} model tags", tags.len());
     Ok(tags)
+}
+
+/// システムメモリ量を取得（MB単位）
+fn get_system_memory_mb() -> u64 {
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+        if let Ok(output) = Command::new("sysctl").args(["-n", "hw.memsize"]).output() {
+            if let Ok(memory_str) = String::from_utf8(output.stdout) {
+                if let Ok(memory_bytes) = memory_str.trim().parse::<u64>() {
+                    return memory_bytes / (1024 * 1024); // MB変換
+                }
+            }
+        }
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        use std::fs;
+        if let Ok(meminfo) = fs::read_to_string("/proc/meminfo") {
+            for line in meminfo.lines() {
+                if line.starts_with("MemTotal:") {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 2 {
+                        if let Ok(kb) = parts[1].parse::<u64>() {
+                            return kb / 1024; // KB to MB
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    
+    #[cfg(target_os = "windows")]
+    {
+        // Windows実装は省略（将来対応）
+        log::warn!("Windows memory detection not implemented");
+    }
+    
+    // フォールバック: デフォルト8GB
+    log::warn!("Could not detect system memory, using default 8GB");
+    8192
 }

@@ -117,20 +117,47 @@ pub async fn validate_model_availability(
 }
 
 async fn validate_ollama_model(model_name: &str) -> bool {
-    let client = reqwest::Client::new();
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .build()
+    {
+        Ok(client) => client,
+        Err(e) => {
+            log::warn!("Failed to create HTTP client: {}", e);
+            return false;
+        }
+    };
+    
     match client.post("http://localhost:11434/api/show")
+        .timeout(std::time::Duration::from_secs(10))
         .json(&serde_json::json!({"name": model_name}))
         .send()
         .await
     {
         Ok(response) => response.status().is_success(),
-        Err(_) => false,
+        Err(e) => {
+            log::warn!("Failed to validate Ollama model {}: {}", model_name, e);
+            false
+        }
     }
 }
 
 async fn validate_gpt4all_model(model_name: &str) -> bool {
-    let client = reqwest::Client::new();
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .build()
+    {
+        Ok(client) => client,
+        Err(e) => {
+            log::warn!("Failed to create HTTP client: {}", e);
+            return false;
+        }
+    };
+    
     match client.get("http://localhost:4891/v1/models")
+        .timeout(std::time::Duration::from_secs(10))
         .send()
         .await
     {
@@ -144,13 +171,29 @@ async fn validate_gpt4all_model(model_name: &str) -> bool {
             }
             false
         }
+        Err(e) => {
+            log::warn!("Failed to validate GPT4All model {}: {}", model_name, e);
+            false
+        }
         _ => false,
     }
 }
 
 async fn validate_lmstudio_model(model_name: &str) -> bool {
-    let client = reqwest::Client::new();
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .build()
+    {
+        Ok(client) => client,
+        Err(e) => {
+            log::warn!("Failed to create HTTP client: {}", e);
+            return false;
+        }
+    };
+    
     match client.get("http://localhost:1234/v1/models")
+        .timeout(std::time::Duration::from_secs(10))
         .send()
         .await
     {
@@ -162,6 +205,10 @@ async fn validate_lmstudio_model(model_name: &str) -> bool {
                     });
                 }
             }
+            false
+        }
+        Err(e) => {
+            log::warn!("Failed to validate LM Studio model {}: {}", model_name, e);
             false
         }
         _ => false,
