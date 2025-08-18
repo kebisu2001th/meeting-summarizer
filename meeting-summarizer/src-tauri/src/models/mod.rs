@@ -7,8 +7,14 @@ pub struct Recording {
     pub id: String,
     pub filename: String,
     pub file_path: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub category: Option<String>,
+    pub tags: Vec<String>,
     pub duration: Option<i64>, // seconds
     pub file_size: Option<i64>, // bytes
+    pub sample_rate: Option<i32>,
+    pub channels: Option<i32>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -20,11 +26,49 @@ impl Recording {
             id: Uuid::new_v4().to_string(),
             filename,
             file_path,
+            title: None,
+            description: None,
+            category: None,
+            tags: Vec::new(),
             duration: None,
             file_size: None,
+            sample_rate: None,
+            channels: None,
             created_at: now,
             updated_at: now,
         }
+    }
+
+    pub fn with_title(mut self, title: String) -> Self {
+        self.title = Some(title);
+        self.updated_at = Utc::now();
+        self
+    }
+
+    pub fn with_description(mut self, description: String) -> Self {
+        self.description = Some(description);
+        self.updated_at = Utc::now();
+        self
+    }
+
+    pub fn with_category(mut self, category: String) -> Self {
+        self.category = Some(category);
+        self.updated_at = Utc::now();
+        self
+    }
+
+    pub fn with_tags(mut self, tags: Vec<String>) -> Self {
+        self.tags = tags;
+        self.updated_at = Utc::now();
+        self
+    }
+
+    pub fn add_tag(mut self, tag: String) -> Self {
+        if !self.tags.contains(&tag) {
+            self.tags.push(tag);
+            self.updated_at = Utc::now();
+        }
+        self
     }
 
     pub fn with_duration(mut self, duration: i64) -> Self {
@@ -38,6 +82,77 @@ impl Recording {
         self.updated_at = Utc::now();
         self
     }
+
+    pub fn with_audio_info(mut self, sample_rate: i32, channels: i32) -> Self {
+        self.sample_rate = Some(sample_rate);
+        self.channels = Some(channels);
+        self.updated_at = Utc::now();
+        self
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecordingQuery {
+    pub search_text: Option<String>,
+    pub category: Option<String>,
+    pub tags: Vec<String>,
+    pub date_from: Option<DateTime<Utc>>,
+    pub date_to: Option<DateTime<Utc>>,
+    pub min_duration: Option<i64>,
+    pub max_duration: Option<i64>,
+    pub limit: Option<i32>,
+    pub offset: Option<i32>,
+    pub sort_by: SortBy,
+    pub sort_order: SortOrder,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SortBy {
+    CreatedAt,
+    UpdatedAt,
+    Filename,
+    Duration,
+    FileSize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SortOrder {
+    Asc,
+    Desc,
+}
+
+impl Default for RecordingQuery {
+    fn default() -> Self {
+        Self {
+            search_text: None,
+            category: None,
+            tags: Vec::new(),
+            date_from: None,
+            date_to: None,
+            min_duration: None,
+            max_duration: None,
+            limit: Some(50),
+            offset: Some(0),
+            sort_by: SortBy::CreatedAt,
+            sort_order: SortOrder::Desc,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecordingStats {
+    pub total_count: i64,
+    pub total_duration: i64,
+    pub total_size: i64,
+    pub categories: Vec<CategoryStats>,
+    pub recent_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CategoryStats {
+    pub name: String,
+    pub count: i64,
+    pub total_duration: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
