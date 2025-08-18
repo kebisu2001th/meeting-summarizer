@@ -4,11 +4,12 @@ pub mod errors;
 pub mod models;
 pub mod services;
 
-use crate::commands::*;
+use crate::commands::{*, file_management};
 use crate::database::Database;
 use crate::services::{RecordingService, WhisperService};
 use std::sync::Arc;
 use tauri::Manager;
+use tokio::sync::Mutex;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -36,11 +37,14 @@ pub fn run() {
             let recordings_dir = app_data_dir.join("recordings");
 
             // データベースを初期化
-            let database = Arc::new(Database::new(db_path).expect("Failed to initialize database"));
+            let database = Arc::new(Mutex::new(Database::new(&db_path).expect("Failed to initialize database")));
 
+            // 録音サービス用のデータベース参照（独立したコピー）
+            let recording_db = Arc::new(Database::new(&db_path).expect("Failed to initialize recording database"));
+            
             // 録音サービスを初期化
             let recording_service = Arc::new(
-                RecordingService::new(database, recordings_dir.clone())
+                RecordingService::new(recording_db, recordings_dir.clone())
                     .expect("Failed to initialize recording service")
             );
 
@@ -51,6 +55,7 @@ pub fn run() {
             let whisper_service = Arc::new(WhisperService::new(whisper_model_path, recordings_dir));
 
             // サービスをアプリケーション状態に追加
+            app.manage(database);
             app.manage(recording_service);
             app.manage(whisper_service);
 
@@ -67,7 +72,21 @@ pub fn run() {
             get_audio_devices,
             transcribe_recording,
             initialize_whisper,
-            is_whisper_initialized
+            is_whisper_initialized,
+            // File management commands
+            file_management::get_all_recordings_fm,
+            file_management::get_recording_by_id,
+            file_management::search_recordings,
+            file_management::update_recording_metadata,
+            file_management::delete_recording_fm,
+            file_management::get_recording_stats,
+            file_management::get_all_categories,
+            file_management::get_all_tags,
+            file_management::get_transcriptions_by_recording,
+            file_management::get_transcription_by_id,
+            file_management::export_recording_data,
+            file_management::get_recordings_count_fm,
+            file_management::cleanup_orphaned_files
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
