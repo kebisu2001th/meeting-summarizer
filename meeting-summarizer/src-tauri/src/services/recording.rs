@@ -46,6 +46,13 @@ impl RecordingService {
             }
         } // current_sessionガードをここでdrop
 
+        // 録音ディレクトリの存在確認
+        log::info!("Recordings directory: {:?}", self.recordings_dir);
+        if !self.recordings_dir.exists() {
+            log::info!("Creating recordings directory");
+            fs::create_dir_all(&self.recordings_dir)?;
+        }
+
         // 一時ファイル名を生成
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -57,15 +64,21 @@ impl RecordingService {
         let temp_filename = format!("recording_temp_{}.wav", timestamp);
         let temp_file_path = self.recordings_dir.join(&temp_filename);
 
+        log::info!("Generated temp file path: {:?}", temp_file_path);
+
         // 録音セッションを開始
         let session = RecordingSession::new(temp_file_path.to_string_lossy().to_string());
         let session_id = session.id.clone();
+
+        log::info!("Starting recording session: {}", session_id);
 
         // 実際の音声録音を開始
         {
             let mut audio_capture = self.audio_capture.lock().await;
             audio_capture.start_recording(&temp_file_path).await?;
         } // Mutexガードがここでdropされる
+
+        log::info!("Audio capture started successfully");
 
         // セッションを設定
         {
@@ -77,6 +90,10 @@ impl RecordingService {
     }
 
     pub async fn stop_recording(&self) -> AppResult<Recording> {
+        log::info!("Stopping recording");
+        // current_sessionをlogに出力
+        log::info!("Current session: {:?}", self.current_session);
+
         // セッション情報を読み取り（まだクリアしない）
         let session = {
             let current_session = self.current_session.lock().await;
@@ -91,6 +108,24 @@ impl RecordingService {
             audio_capture.stop_recording().await?;
         } // Mutexガードがここでdropされる
 
+        // 一時ファイルの存在確認
+        let temp_path = std::path::Path::new(&session.temp_file_path);
+        log::info!("Checking temp file existence: {:?}", temp_path);
+        
+        if !temp_path.exists() {
+            log::error!("Temp file does not exist: {:?}", temp_path);
+            return Err(AppError::Recording {
+                message: format!("Temp file not found: {}", session.temp_file_path),
+            });
+        }
+
+        let temp_file_size = fs::metadata(temp_path)?.len();
+        log::info!("Temp file size: {} bytes", temp_file_size);
+
+        if temp_file_size == 0 {
+            log::warn!("Temp file is empty: {:?}", temp_path);
+        }
+
         // 録音時間を計算（秒）
         let duration = chrono::Utc::now()
             .signed_duration_since(session.start_time)
@@ -104,6 +139,7 @@ impl RecordingService {
         );
         let final_path = self.recordings_dir.join(&final_filename);
 
+        log::info!("Moving temp file from {:?} to {:?}", temp_path, final_path);
         fs::rename(&session.temp_file_path, &final_path)?;
 
         // ファイルサイズを取得
@@ -185,6 +221,6 @@ impl RecordingService {
 
     // オーディオデバイス情報を取得
     pub fn get_audio_devices(&self) -> AppResult<Vec<String>> {
-        crate::services::audio_capture_mock::get_audio_devices()
+        crate::services::audio_capture_cpal::get_audio_devices()
     }
 }

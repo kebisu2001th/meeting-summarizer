@@ -30,6 +30,7 @@ function validateAndParseRecordings(arr: any): Recording[] {
   });
 }
 
+// biome-ignore lint/complexity/noStaticOnlyClass: <explanation>
 export class TauriService {
   static async startRecording(): Promise<string> {
 

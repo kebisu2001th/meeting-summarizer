@@ -18,7 +18,7 @@ pub struct WhisperService {
 
 impl WhisperService {
     pub fn new(model_path: PathBuf, recordings_dir: PathBuf) -> Self {
-        // モデルサイズを環境変数で設定可能（デフォルト: small）
+        // モデルサイズを環境変数で設定可能（デフォルト: small - 速度重視）
         let model_size = std::env::var("WHISPER_MODEL_SIZE")
             .unwrap_or_else(|_| "small".to_string());
         
@@ -97,11 +97,16 @@ impl WhisperService {
             });
         }
 
-        // ファイルサイズチェック（500MB制限）
+        // ファイルサイズチェック（500MB制限、1KB最小）
         let file_size = fs::metadata(audio_path)?.len();
         if file_size > 500 * 1024 * 1024 {
             return Err(AppError::TranscriptionFailed {
                 message: "Audio file too large. Maximum size is 500MB for local processing.".to_string(),
+            });
+        }
+        if file_size < 1024 {
+            return Err(AppError::TranscriptionFailed {
+                message: "Audio file too small. Minimum size is 1KB.".to_string(),
             });
         }
 
@@ -194,10 +199,26 @@ impl WhisperService {
         audio_path: &Path,
         language: Option<&str>,
     ) -> AppResult<String> {
-        let language_option = if let Some(lang) = language {
-            format!("language='{}',", lang)
+        // 日本語の場合は明示的に言語指定と最適化オプションを追加
+        let language = language.unwrap_or("ja");
+        let is_japanese = language == "ja";
+        
+        // 日本語専用の高速パラメータ（速度重視）
+        let transcribe_options = if is_japanese {
+            format!(
+                r#"language='ja',
+                task='transcribe',
+                temperature=0.2,
+                best_of=1,
+                beam_size=1,
+                patience=1.0,
+                length_penalty=1.0,
+                suppress_tokens=[-1],
+                word_timestamps=False,
+                condition_on_previous_text=True"#
+            )
         } else {
-            "".to_string()
+            format!("language='{}', temperature=0.2, best_of=1, beam_size=1", language)
         };
 
         let script = format!(
@@ -206,10 +227,11 @@ import whisper
 import sys
 import warnings
 import os
+import numpy as np
 warnings.filterwarnings("ignore")
 
 try:
-    audio_file = '{}'
+    audio_file = '{audio_path}'
     if not os.path.exists(audio_file):
         print(f"Error: Audio file not found: {{audio_file}}", file=sys.stderr)
         sys.exit(1)
@@ -220,34 +242,94 @@ try:
         print("Audio file is empty", file=sys.stderr)
         sys.exit(1)
     
-    print(f"Loading model: {}", file=sys.stderr)
-    model = whisper.load_model('{}')
+    print(f"Loading model: {model_size} (optimized for Japanese)", file=sys.stderr)
+    model = whisper.load_model('{model_size}')
     
-    print(f"Transcribing file: {{audio_file}} ({{file_size}} bytes)", file=sys.stderr)
-    result = model.transcribe(audio_file, {})
+    print(f"Transcribing file: {{audio_file}} ({{file_size}} bytes) with Japanese optimization", file=sys.stderr)
+    
+    # 音声前処理（ノイズ除去とボリューム正規化）
+    try:
+        import librosa
+        # librosaで音声を読み込み、前処理
+        audio_data, sr = librosa.load(audio_file, sr=16000)
+        # RMSベースのボリューム正規化
+        rms = np.sqrt(np.mean(audio_data**2))
+        if rms > 0:
+            target_rms = 0.1
+            audio_data = audio_data * (target_rms / rms)
+        # 無音部分の除去
+        audio_data, _ = librosa.effects.trim(audio_data, top_db=30)
+        print(f"Audio preprocessing completed with librosa", file=sys.stderr)
+        
+        # 前処理済み音声でトランスクリプション
+        result = model.transcribe(
+            audio_data,
+            {transcribe_options}
+        )
+    except ImportError:
+        print(f"librosa not available, using direct file processing", file=sys.stderr)
+        # 日本語最適化設定でトランスクリプション実行（ファイル直接）
+        result = model.transcribe(
+            audio_file,
+            {transcribe_options}
+        )
     
     text = result.get('text', '').strip()
+    
+    # デバッグ情報を出力
+    if 'segments' in result:
+        total_segments = len(result['segments'])
+        print(f"Processed {{total_segments}} audio segments", file=sys.stderr)
+        
+        # 信頼度の低いセグメントを検出
+        low_confidence_segments = 0
+        for segment in result['segments']:
+            if 'avg_logprob' in segment and segment['avg_logprob'] < -0.8:
+                low_confidence_segments += 1
+        
+        if low_confidence_segments > 0:
+            print(f"Warning: {{low_confidence_segments}} segments have low confidence", file=sys.stderr)
+    
     if not text:
-        # 空のテキストの場合、デバッグ情報を出力
-        print(f"Warning: Empty transcription result", file=sys.stderr)
-        print(f"Result keys: {{list(result.keys())}}", file=sys.stderr)
+        # 実際の音声が認識できない場合
+        print(f"Warning: No text could be transcribed from audio", file=sys.stderr)
         print(f"Audio file size: {{file_size}} bytes", file=sys.stderr)
-        # より有意味なデフォルトテキストを出力（モック音声を考慮）
-        # ファイルサイズで簡単なテスト用書き起こしを生成
-        if file_size > 1000:  # 1KB以上のファイル
-            test_phrases = [
-                "これはテスト用の音声録音です。",
-                "音声書き起こし機能が正常に動作しています。",
-                "日本語の音声認識をテストしています。",
-                "会議の内容を書き起こしています。",
-                "Whisperによる音声解析が完了しました。"
-            ]
-            # ファイルサイズに基づいて疑似的にフレーズを選択
-            phrase_index = (file_size // 1000) % len(test_phrases)
-            print(test_phrases[phrase_index])
-        else:
-            print("音声データが短すぎます。より長い録音を試してください。")
+        print("音声が認識できませんでした。より明瞭に話すか、マイクの距離を近づけてください。")
     else:
+        # 日本語の場合、後処理で改善
+        if '{language}' == 'ja':
+            # 日本語特有の後処理
+            import re
+            
+            # プロンプトテキストと幻覚パターンの除去
+            hallucination_patterns = [
+                '日本語の音声です：',
+                '以下は日本語の音声です：',
+                '日本語の音声です。',
+                '以下は日本語の音声です。',
+                'お疲れ様でした。',
+                '次回はお楽しみに',
+                'ありがとうございました。',
+                'ご視聴ありがとうございました'
+            ]
+            
+            for pattern in hallucination_patterns:
+                # 幻覚パターンの除去
+                while pattern in text:
+                    text = text.replace(pattern, '', 1).strip()
+            
+            # 不要な空白を削除
+            text = re.sub(r'\s+', ' ', text).strip()
+            # 句読点の正規化
+            text = text.replace('、', '、').replace('。', '。')
+            # 英数字周りのスペース調整
+            text = re.sub(r'([ぁ-んァ-ヶ一-龯])([A-Za-z0-9])', r'\1 \2', text)
+            text = re.sub(r'([A-Za-z0-9])([ぁ-んァ-ヶ一-龯])', r'\1 \2', text)
+            
+            # 空の結果になった場合のハンドリング
+            if not text.strip():
+                text = "音声を認識できませんでした。"
+        
         print(text)
         
 except Exception as e:
@@ -256,10 +338,10 @@ except Exception as e:
     traceback.print_exc(file=sys.stderr)
     sys.exit(1)
 "#,
-            audio_path.to_string_lossy(),
-            self.model_size,
-            self.model_size,
-            language_option
+            audio_path = audio_path.to_string_lossy(),
+            model_size = self.model_size,
+            transcribe_options = transcribe_options,
+            language = language
         );
 
         Ok(script)
@@ -321,33 +403,50 @@ except Exception as e:
     }
 
     async fn install_whisper(&self) -> AppResult<()> {
-        log::info!("📦 Whisperライブラリをインストール中...");
+        log::info!("📦 Whisperライブラリと音声処理ライブラリをインストール中...");
 
         let python_cmd = self.python_path.as_ref()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| "python3".to_string());
 
-        // pipでwhisperをインストール
-        let output = TokioCommand::new(&python_cmd)
-            .arg("-m")
-            .arg("pip")
-            .arg("install")
-            .arg("openai-whisper")
-            .arg("--user") // ユーザーローカルにインストール
-            .output()
-            .await
-            .map_err(|e| AppError::WhisperInit {
-                message: format!("Failed to install whisper: {}", e),
-            })?;
+        // 必要なライブラリのリスト（音声処理の品質向上のため）
+        let packages = vec![
+            "openai-whisper",
+            "librosa",
+            "soundfile",
+            "numpy",
+        ];
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(AppError::WhisperInit {
-                message: format!("Whisper installation failed: {}", stderr),
-            });
+        for package in packages {
+            log::info!("📦 Installing {}...", package);
+            
+            let output = TokioCommand::new(&python_cmd)
+                .arg("-m")
+                .arg("pip")
+                .arg("install")
+                .arg(package)
+                .arg("--user") // ユーザーローカルにインストール
+                .output()
+                .await
+                .map_err(|e| AppError::WhisperInit {
+                    message: format!("Failed to install {}: {}", package, e),
+                })?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                log::warn!("Failed to install {}: {}", package, stderr);
+                // librosa等の失敗は致命的ではないため、whisperのみ必須とする
+                if package == "openai-whisper" {
+                    return Err(AppError::WhisperInit {
+                        message: format!("Whisper installation failed: {}", stderr),
+                    });
+                }
+            } else {
+                log::info!("✅ {} インストール完了", package);
+            }
         }
 
-        log::info!("✅ Whisperライブラリインストール完了");
+        log::info!("✅ 音声処理ライブラリのインストール完了");
         Ok(())
     }
 
