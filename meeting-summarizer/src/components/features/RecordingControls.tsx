@@ -11,21 +11,34 @@ import { useRecordingTimer } from '../../hooks/useRecordingTimer';
 import { formatDuration, cn } from '../../lib/utils';
 
 export function RecordingControls() {
-  const [recordingState] = useAtom(recordingStateAtom);
+  const [recordingState, setRecordingState] = useAtom(recordingStateAtom);
   const startRecording = useSetAtom(startRecordingAtom);
   const stopRecording = useSetAtom(stopRecordingAtom);
   const duration = useRecordingTimer();
 
   const handleRecordingToggle = async () => {
+    console.log('handleRecordingToggle - current state:', recordingState);
+    
     try {
       if (recordingState.isRecording) {
-        await stopRecording();
+        console.log('Attempting to stop recording...');
+        const result = await stopRecording();
+        console.log('Stop recording result:', result);
       } else {
-        await startRecording();
+        console.log('Attempting to start recording...');
+        const result = await startRecording();
+        console.log('Start recording result:', result);
       }
     } catch (error) {
       console.error('Recording error:', error);
-      // TODO: Show user-friendly error message
+      alert(`録音エラー: ${error}`);
+      
+      // エラー時に状態をリセット
+      setRecordingState({
+        isRecording: false,
+        duration: 0,
+        isPaused: false,
+      });
     }
   };
 
@@ -53,7 +66,7 @@ export function RecordingControls() {
               onClick={handleRecordingToggle}
               size="lg"
               className={cn(
-                "w-24 h-24 rounded-full transition-all duration-200 ease-in-out",
+                "relative z-10 w-24 h-24 rounded-full transition-all duration-200 ease-in-out cursor-pointer",
                 "hover:scale-105 active:scale-95",
                 recordingState.isRecording
                   ? "bg-red-500 hover:bg-red-600 text-white shadow-red-200 shadow-lg"
@@ -61,7 +74,7 @@ export function RecordingControls() {
               )}
             >
               {recordingState.isRecording ? (
-                <Square className="w-8 h-8" fill="currentColor" />
+                <Square className="w-8 h-8" fill="currentColor" /> 
               ) : (
                 <Mic className="w-8 h-8" />
               )}
@@ -69,7 +82,7 @@ export function RecordingControls() {
             
             {/* 録音中のパルスエフェクト */}
             {recordingState.isRecording && !recordingState.isPaused && (
-              <div className="absolute inset-0 rounded-full bg-red-400 animate-ping opacity-25" />
+              <div className="pointer-events-none absolute inset-0 z-0 rounded-full bg-red-400 animate-ping opacity-25" />
             )}
           </div>
 

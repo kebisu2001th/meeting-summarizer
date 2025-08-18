@@ -1,15 +1,18 @@
 use crate::database::Database;
 use crate::errors::{AppError, AppResult};
 use crate::models::{Recording, RecordingSession};
+use crate::services::audio_capture_cpal::AudioCapture;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct RecordingService {
     db: Arc<Database>,
     recordings_dir: PathBuf,
     current_session: Arc<Mutex<Option<RecordingSession>>>,
+    audio_capture: Arc<Mutex<AudioCapture>>,
 }
 
 impl RecordingService {
@@ -19,24 +22,35 @@ impl RecordingService {
             fs::create_dir_all(&recordings_dir)?;
         }
 
+        // オーディオキャプチャを初期化
+        let audio_capture = AudioCapture::new()?;
+
         Ok(Self {
             db,
             recordings_dir,
             current_session: Arc::new(Mutex::new(None)),
+            audio_capture: Arc::new(Mutex::new(audio_capture)),
         })
     }
 
-    pub fn start_recording(&self) -> AppResult<String> {
-        let mut current_session = self.current_session.lock()
-            .map_err(|_| AppError::InvalidOperation { 
-                message: "Failed to acquire session lock".to_string() 
-            })?;
+    pub async fn start_recording(&self) -> AppResult<String> {
+        // セッション状態をチェック
+        {
+            let current_session = self.current_session.lock().await;
 
-        // 既に録音中の場合はエラー
-        if current_session.is_some() {
-            return Err(AppError::Recording { 
-                message: "Recording is already in progress".to_string() 
-            });
+            // 既に録音中の場合はエラー
+            if current_session.is_some() {
+                return Err(AppError::Recording { 
+                    message: "Recording is already in progress".to_string() 
+                });
+            }
+        } // current_sessionガードをここでdrop
+
+        // 録音ディレクトリの存在確認
+        log::info!("Recordings directory: {:?}", self.recordings_dir);
+        if !self.recordings_dir.exists() {
+            log::info!("Creating recordings directory");
+            fs::create_dir_all(&self.recordings_dir)?;
         }
 
         // 一時ファイル名を生成
@@ -50,46 +64,82 @@ impl RecordingService {
         let temp_filename = format!("recording_temp_{}.wav", timestamp);
         let temp_file_path = self.recordings_dir.join(&temp_filename);
 
+        log::info!("Generated temp file path: {:?}", temp_file_path);
+
         // 録音セッションを開始
         let session = RecordingSession::new(temp_file_path.to_string_lossy().to_string());
         let session_id = session.id.clone();
 
-        // TODO: 実際の音声録音を開始
-        // ここでは一時ファイルを作成するだけ
-        fs::File::create(&temp_file_path)?;
+        log::info!("Starting recording session: {}", session_id);
 
-        *current_session = Some(session);
+        // 実際の音声録音を開始
+        {
+            let mut audio_capture = self.audio_capture.lock().await;
+            audio_capture.start_recording(&temp_file_path).await?;
+        } // Mutexガードがここでdropされる
+
+        log::info!("Audio capture started successfully");
+
+        // セッションを設定
+        {
+            let mut current_session = self.current_session.lock().await;
+            *current_session = Some(session);
+        }
 
         Ok(session_id)
     }
 
     pub async fn stop_recording(&self) -> AppResult<Recording> {
-        let session = {
-            let mut current_session = self.current_session.lock()
-                .map_err(|_| AppError::InvalidOperation { 
-                    message: "Failed to acquire session lock".to_string() 
-                })?;
+        log::info!("Stopping recording");
+        // current_sessionをlogに出力
+        log::info!("Current session: {:?}", self.current_session);
 
-            current_session.take()
-                .ok_or_else(|| AppError::Recording { 
-                    message: "No active recording session".to_string() 
-                })?
+        // セッション情報を読み取り（まだクリアしない）
+        let session = {
+            let current_session = self.current_session.lock().await;
+            current_session.clone().ok_or_else(|| AppError::Recording {
+                message: "No active recording session".to_string(),
+            })?
         };
 
-        // TODO: 実際の音声録音を停止
+        // 実際の音声録音を停止
+        {
+            let mut audio_capture = self.audio_capture.lock().await;
+            audio_capture.stop_recording().await?;
+        } // Mutexガードがここでdropされる
+
+        // 一時ファイルの存在確認
+        let temp_path = std::path::Path::new(&session.temp_file_path);
+        log::info!("Checking temp file existence: {:?}", temp_path);
+        
+        if !temp_path.exists() {
+            log::error!("Temp file does not exist: {:?}", temp_path);
+            return Err(AppError::Recording {
+                message: format!("Temp file not found: {}", session.temp_file_path),
+            });
+        }
+
+        let temp_file_size = fs::metadata(temp_path)?.len();
+        log::info!("Temp file size: {} bytes", temp_file_size);
+
+        if temp_file_size == 0 {
+            log::warn!("Temp file is empty: {:?}", temp_path);
+        }
 
         // 録音時間を計算（秒）
         let duration = chrono::Utc::now()
             .signed_duration_since(session.start_time)
             .num_seconds();
 
-        // 一時ファイルを最終的な場所に移動
+        // 一時ファイルを最終的な場所に移動（セッションIDを含めて一意化）
         let final_filename = format!(
-            "recording_{}.wav", 
-            session.start_time.format("%Y%m%d_%H%M%S")
+            "recording_{}_{}.wav",
+            session.start_time.format("%Y%m%d_%H%M%S"),
+            session.id
         );
         let final_path = self.recordings_dir.join(&final_filename);
 
+        log::info!("Moving temp file from {:?} to {:?}", temp_path, final_path);
         fs::rename(&session.temp_file_path, &final_path)?;
 
         // ファイルサイズを取得
@@ -105,6 +155,12 @@ impl RecordingService {
 
         // データベースに保存
         self.db.create_recording(&recording).await?;
+
+        // ここまで成功したら、セッションをクリア
+        {
+            let mut current_session = self.current_session.lock().await;
+            *current_session = None;
+        }
 
         Ok(recording)
     }
@@ -134,9 +190,16 @@ impl RecordingService {
     }
 
     pub fn is_recording(&self) -> bool {
-        self.current_session.lock()
+        // セッション状態とオーディオキャプチャ状態の両方をチェック
+        let session_active = self.current_session.try_lock()
             .map(|session| session.is_some())
-            .unwrap_or(false)
+            .unwrap_or(false);
+
+        let audio_active = self.audio_capture.try_lock()
+            .map(|capture| capture.is_recording())
+            .unwrap_or(false);
+
+        session_active && audio_active
     }
 
     pub async fn get_recordings_count(&self) -> AppResult<i64> {
@@ -154,5 +217,10 @@ impl RecordingService {
         } else {
             Ok(None)
         }
+    }
+
+    // オーディオデバイス情報を取得
+    pub fn get_audio_devices(&self) -> AppResult<Vec<String>> {
+        crate::services::audio_capture_cpal::get_audio_devices()
     }
 }
