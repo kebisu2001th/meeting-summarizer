@@ -10,8 +10,14 @@ pub mod whisper_mock;
 
 // LLM統合サービス
 pub mod llm;
+pub mod llm_manager;
+pub mod model_settings;
+pub mod model_downloader;
 
 pub use audio_capture_cpal::AudioCapture;
 pub use recording::RecordingService;
 pub use whisper_local::WhisperService;
 pub use llm::LLMService;
+pub use llm_manager::{LLMModelManager, ModelInfo, ModelBenchmark, ModelCapabilities};
+pub use model_settings::{ModelSettings, ModelPreference, PerformancePriority, ModelSettingsManager};
+pub use model_downloader::{ModelDownloader, DownloadableModel, SystemCompatibility, DownloadProgress, DownloadStatus};

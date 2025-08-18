@@ -240,3 +240,6 @@ pub async fn is_whisper_initialized(
 // LLM commands module
 pub mod llm;
 pub mod streaming;
+pub mod model_management;
+pub mod model_settings;
+pub mod model_downloader;
