@@ -1,6 +1,6 @@
 use crate::errors::{AppError, AppResult};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{SampleRate, StreamConfig};
+use cpal::StreamConfig;
 use hound::{WavSpec, WavWriter};
 use std::fs::File;
 use std::io::BufWriter;
@@ -209,29 +209,17 @@ impl AudioCapture {
 
         // 最適な設定を選択（できるだけ16kHzに近い設定を選ぶ）
         let config = if let Some(config_range) = available_configs.first() {
-            let sample_rate = if config_range.min_sample_rate().0 <= SAMPLE_RATE && 
-                              config_range.max_sample_rate().0 >= SAMPLE_RATE {
-                // 16kHzがサポートされている場合
-                SampleRate(SAMPLE_RATE)
-            } else {
-                // 16kHzがサポートされていない場合、最も近い値を選択
-                let min_rate = config_range.min_sample_rate().0;
-                let max_rate = config_range.max_sample_rate().0;
-                
-                if min_rate > SAMPLE_RATE {
-                    config_range.min_sample_rate()
-                } else {
-                    config_range.max_sample_rate()
-                }
-            };
-            
+            // macOSのデフォルト設定（44.1kHz）を使用し、後でダウンサンプリング
+            let sample_rate = config_range.max_sample_rate(); // 通常44100Hz
             let channels = std::cmp::min(config_range.channels(), CHANNELS);
-            log::info!("Selected config: channels={}, sample_rate={}", channels, sample_rate.0);
+            
+            log::info!("Selected config: channels={}, sample_rate={} (will downsample to {}Hz)", 
+                      channels, sample_rate.0, SAMPLE_RATE);
             
             StreamConfig {
                 channels,
                 sample_rate,
-                buffer_size: cpal::BufferSize::Default,
+                buffer_size: cpal::BufferSize::Fixed(1024), // 固定バッファサイズ
             }
         } else {
             return Err(AppError::Recording {
@@ -247,23 +235,38 @@ impl AudioCapture {
         log::info!("Creating audio stream with config: channels={}, sample_rate={}", config.channels, config.sample_rate.0);
 
         // 音声ストリームを作成
+        let actual_sample_rate = config.sample_rate.0;
         let stream = device.build_input_stream(
             &config,
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                let is_recording_status = is_recording_for_callback.lock().unwrap();
-                if *is_recording_status {
-                    let mut samples = recorded_samples_clone.lock().unwrap();
-                    for &sample in data {
-                        // 音声ゲインを調整（小さい音声を増幅）
-                        let amplified_sample = if sample.abs() > 0.001 {
-                            sample * 3.0  // 3倍に増幅
-                        } else {
-                            sample
-                        };
-                        samples.push(amplified_sample.clamp(-1.0, 1.0));
-                    }
-                    if samples.len() % 16000 == 0 {  // ログを1秒ごとに出力
-                        log::info!("Recorded {} samples", samples.len());
+                let is_recording_status = match is_recording_for_callback.lock() {
+                    Ok(guard) => *guard,
+                    Err(_) => false,
+                };
+                
+                if is_recording_status {
+                    match recorded_samples_clone.lock() {
+                        Ok(mut samples) => {
+                            for &sample in data {
+                                // 音声レベルチェックとゲイン調整
+                                let processed_sample = if sample.abs() > 0.0001 {
+                                    // 適度な増幅（過度な増幅を避ける）
+                                    (sample * 2.0).clamp(-0.95, 0.95)
+                                } else {
+                                    sample
+                                };
+                                samples.push(processed_sample);
+                            }
+                            
+                            // 44.1kHzで録音されている場合の進捗ログ
+                            if samples.len() % actual_sample_rate as usize == 0 {
+                                let seconds = samples.len() / actual_sample_rate as usize;
+                                log::info!("Recording progress: {}s ({} samples)", seconds, samples.len());
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("Failed to lock samples buffer: {}", e);
+                        }
                     }
                 }
             },
@@ -315,12 +318,23 @@ impl AudioCapture {
             });
         }
 
-        Self::save_samples_to_file(&samples, &output_path)?;
+        let original_sample_count = samples.len();
+        
+        // 44.1kHzから16kHzにダウンサンプリング
+        let downsampled_samples = if config.sample_rate.0 != SAMPLE_RATE {
+            log::info!("Downsampling from {}Hz to {}Hz", config.sample_rate.0, SAMPLE_RATE);
+            Self::downsample(&samples, config.sample_rate.0, SAMPLE_RATE)
+        } else {
+            samples
+        };
+        
+        log::info!("Saving {} downsampled samples", downsampled_samples.len());
+        Self::save_samples_to_file(&downsampled_samples, &output_path)?;
 
         // ファイル作成確認
         if output_path.exists() {
             let file_size = std::fs::metadata(&output_path).map(|m| m.len()).unwrap_or(0);
-            log::info!("CPAL recording completed: {} samples saved to {:?}, file size: {} bytes", samples.len(), output_path, file_size);
+            log::info!("CPAL recording completed: {} original samples saved to {:?}, file size: {} bytes", original_sample_count, output_path, file_size);
         } else {
             log::error!("CPAL recording failed: file not created at {:?}", output_path);
             return Err(AppError::Recording {
@@ -377,6 +391,40 @@ impl AudioCapture {
             })?;
 
         Ok(())
+    }
+
+    // ダウンサンプリング関数の実装
+    fn downsample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
+        if from_rate == to_rate {
+            return samples.to_vec();
+        }
+        
+        let ratio = from_rate as f64 / to_rate as f64;
+        let output_len = (samples.len() as f64 / ratio) as usize;
+        let mut output = Vec::with_capacity(output_len);
+        
+        // シンプルなリニア補間によるダウンサンプリング
+        for i in 0..output_len {
+            let source_index = (i as f64 * ratio) as usize;
+            
+            if source_index < samples.len() {
+                // 隣接サンプルでの線形補間
+                if source_index + 1 < samples.len() {
+                    let frac = (i as f64 * ratio) - source_index as f64;
+                    let sample1 = samples[source_index];
+                    let sample2 = samples[source_index + 1];
+                    let interpolated = sample1 + (sample2 - sample1) * frac as f32;
+                    output.push(interpolated);
+                } else {
+                    output.push(samples[source_index]);
+                }
+            }
+        }
+        
+        log::info!("Downsampled from {} samples ({}Hz) to {} samples ({}Hz)", 
+                   samples.len(), from_rate, output.len(), to_rate);
+        
+        output
     }
 }
 

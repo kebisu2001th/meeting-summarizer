@@ -18,9 +18,9 @@ pub struct WhisperService {
 
 impl WhisperService {
     pub fn new(model_path: PathBuf, recordings_dir: PathBuf) -> Self {
-        // モデルサイズを環境変数で設定可能（デフォルト: small - 速度重視）
+        // モデルサイズを環境変数で設定可能（デフォルト: base - 品質と速度のバランス）
         let model_size = std::env::var("WHISPER_MODEL_SIZE")
-            .unwrap_or_else(|_| "small".to_string());
+            .unwrap_or_else(|_| "base".to_string());
         
         // Pythonパスを自動検出
         let python_path = Self::detect_python_path();
@@ -203,22 +203,24 @@ impl WhisperService {
         let language = language.unwrap_or("ja");
         let is_japanese = language == "ja";
         
-        // 日本語専用の高速パラメータ（速度重視）
+        // 日本語専用の高品質パラメータ（品質重視）
         let transcribe_options = if is_japanese {
             format!(
                 r#"language='ja',
                 task='transcribe',
-                temperature=0.2,
-                best_of=1,
-                beam_size=1,
-                patience=1.0,
+                temperature=0.0,
+                best_of=3,
+                beam_size=5,
+                patience=2.0,
                 length_penalty=1.0,
                 suppress_tokens=[-1],
                 word_timestamps=False,
-                condition_on_previous_text=True"#
+                condition_on_previous_text=False,
+                no_speech_threshold=0.6,
+                logprob_threshold=-1.0"#
             )
         } else {
-            format!("language='{}', temperature=0.2, best_of=1, beam_size=1", language)
+            format!("language='{}', temperature=0.0, best_of=3, beam_size=5", language)
         };
 
         let script = format!(
@@ -252,14 +254,30 @@ try:
         import librosa
         # librosaで音声を読み込み、前処理
         audio_data, sr = librosa.load(audio_file, sr=16000)
-        # RMSベースのボリューム正規化
+        
+        # 音声品質チェック
+        if len(audio_data) == 0:
+            print("Warning: Empty audio data", file=sys.stderr)
+            sys.exit(1)
+            
+        # RMSベースのボリューム正規化（より保守的）
         rms = np.sqrt(np.mean(audio_data**2))
         if rms > 0:
-            target_rms = 0.1
+            # 音声レベルが低すぎる場合の警告
+            if rms < 0.001:
+                print(f"Warning: Very low audio level (RMS: {{rms:.6f}})", file=sys.stderr)
+            target_rms = 0.05  # より保守的なレベル
             audio_data = audio_data * (target_rms / rms)
-        # 無音部分の除去
-        audio_data, _ = librosa.effects.trim(audio_data, top_db=30)
-        print(f"Audio preprocessing completed with librosa", file=sys.stderr)
+            
+        # 無音部分の除去（より保守的）
+        audio_data, _ = librosa.effects.trim(audio_data, top_db=20)  # より感度良く
+        
+        # 最小音声長チェック
+        min_duration = 0.1  # 0.1秒以上
+        if len(audio_data) / sr < min_duration:
+            print(f"Warning: Audio too short ({{len(audio_data) / sr:.2f}}s)", file=sys.stderr)
+            
+        print(f"Audio preprocessing completed: {{len(audio_data) / sr:.2f}}s, RMS: {{np.sqrt(np.mean(audio_data**2)):.6f}}", file=sys.stderr)
         
         # 前処理済み音声でトランスクリプション
         result = model.transcribe(
