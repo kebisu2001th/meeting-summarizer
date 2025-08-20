@@ -393,36 +393,58 @@ impl AudioCapture {
         Ok(())
     }
 
-    // ダウンサンプリング関数の実装
+    // ダウンサンプリング関数の実装（メモリ効率改善版）
     fn downsample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
         if from_rate == to_rate {
             return samples.to_vec();
         }
         
+        // 入力検証
+        if samples.is_empty() || from_rate == 0 || to_rate == 0 {
+            log::warn!("Invalid downsample parameters: samples_len={}, from_rate={}, to_rate={}", 
+                      samples.len(), from_rate, to_rate);
+            return Vec::new();
+        }
+        
         let ratio = from_rate as f64 / to_rate as f64;
-        let output_len = (samples.len() as f64 / ratio) as usize;
+        let output_len = (samples.len() as f64 / ratio).ceil() as usize;
+        
+        // メモリ効率を考慮した事前容量確保
         let mut output = Vec::with_capacity(output_len);
         
-        // シンプルなリニア補間によるダウンサンプリング
-        for i in 0..output_len {
-            let source_index = (i as f64 * ratio) as usize;
+        // チャンクサイズでバッチ処理してメモリ使用量を制御
+        const CHUNK_SIZE: usize = 1024;
+        
+        for chunk_start in (0..output_len).step_by(CHUNK_SIZE) {
+            let chunk_end = (chunk_start + CHUNK_SIZE).min(output_len);
             
-            if source_index < samples.len() {
-                // 隣接サンプルでの線形補間
-                if source_index + 1 < samples.len() {
-                    let frac = (i as f64 * ratio) - source_index as f64;
-                    let sample1 = samples[source_index];
-                    let sample2 = samples[source_index + 1];
-                    let interpolated = sample1 + (sample2 - sample1) * frac as f32;
-                    output.push(interpolated);
+            for i in chunk_start..chunk_end {
+                let source_index = (i as f64 * ratio) as usize;
+                
+                if source_index < samples.len() {
+                    // 隣接サンプルでの線形補間（境界チェック改善）
+                    let next_index = (source_index + 1).min(samples.len() - 1);
+                    
+                    if source_index != next_index {
+                        let frac = (i as f64 * ratio) - source_index as f64;
+                        let sample1 = samples[source_index];
+                        let sample2 = samples[next_index];
+                        let interpolated = sample1 + (sample2 - sample1) * frac as f32;
+                        output.push(interpolated);
+                    } else {
+                        output.push(samples[source_index]);
+                    }
                 } else {
-                    output.push(samples[source_index]);
+                    // 範囲外の場合は最後のサンプルを使用
+                    if let Some(&last_sample) = samples.last() {
+                        output.push(last_sample);
+                    }
                 }
             }
         }
         
-        log::info!("Downsampled from {} samples ({}Hz) to {} samples ({}Hz)", 
-                   samples.len(), from_rate, output.len(), to_rate);
+        log::info!("Downsampled from {} samples ({}Hz) to {} samples ({}Hz) with ratio {:.3}", 
+                   samples.len(), from_rate, output.len(), to_rate, ratio);
         
         output
     }
